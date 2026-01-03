@@ -1,242 +1,49 @@
 
-// =============================
-// Données & état global
-// =============================
+// ====== PoE Guild Loot Splitter | Inventaire final par coffre (X/Y) + Répartition des currencies (tiers distincts) ======
+
 let rawData = [];
 let filteredData = [];
-
 let currentSortColumn = null;
 let currentSortAsc = true;
 
-let timelineChart, barChart, pieChart, heatmapChart;
-
 window.addEventListener('load', () => {
-  // Bouton import CSV
-  const uploadBtn = document.getElementById('uploadBtn');
   const csvFileInput = document.getElementById('csvFileInput');
-  uploadBtn.addEventListener('click', () => {
-    const file = csvFileInput.files[0];
-    if (file) {
-      handleFile(file);
-    } else {
-      alert('Please select a CSV file first.');
-    }
+
+  // ➜ IMPORT AUTO : on charge dès qu’un fichier est choisi
+  csvFileInput.addEventListener('change', (e) => {
+    const file = e.target.files?.[0];
+    if (file) handleFile(file);
   });
 
   // Filtres
-  const stashFilter = document.getElementById('stashFilter');
-  const accountFilter = document.getElementById('accountFilter');
-  const actionFilter = document.getElementById('actionFilter');
-
-  stashFilter.addEventListener('change', () => {
-    applyFilters();
-    // Sync vers Farm splitting
-    document.getElementById('splitStashSel').value = stashFilter.value;
-    recomputeSplit();
+  ['stashFilter', 'accountFilter', 'actionFilter'].forEach(id => {
+    document.getElementById(id).addEventListener('change', applyFilters);
   });
-  accountFilter.addEventListener('change', applyFilters);
-  actionFilter.addEventListener('change', applyFilters);
+  document.getElementById('itemFilterInput').addEventListener('input', applyFilters);
 
-  // Export CSV / PNG
+  // Mode inventaire / logs
+  document.getElementById('inventoryMode').addEventListener('change', () => {
+    populatePreviewTable(filteredData.length ? filteredData : rawData);
+    updateCurrencySplit(filteredData.length ? filteredData : rawData);
+  });
+
+  // Répartition (nombre de joueurs)
+  document.getElementById('playerCount').addEventListener('input', () => {
+    updateCurrencySplit(filteredData.length ? filteredData : rawData);
+  });
+  document.getElementById('recomputeSplitBtn').addEventListener('click', () => {
+    updateCurrencySplit(filteredData.length ? filteredData : rawData);
+  });
+
+  // Export
   document.getElementById('downloadCsvBtn').addEventListener('click', downloadCSV);
-  document.getElementById('downloadPngBtn').addEventListener('click', downloadPNG);
 
-  // Tri tableau
+  // Tri par clic
   attachTableHeaderListeners();
-
-  // i18n & tabs
-  const langSelect = document.getElementById('langSelect');
-  langSelect.value = CURRENT_LANG;
-  langSelect.addEventListener('change', () => {
-    CURRENT_LANG = langSelect.value;
-    localStorage.setItem('lang', CURRENT_LANG);
-    applyI18N();
-  });
-
-  document.querySelectorAll('.tabBtn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tab = btn.dataset.tab;
-      document.querySelectorAll('.tabPage').forEach(p => p.style.display = 'none');
-      document.getElementById(tab).style.display = 'block';
-    });
-  });
-
-  applyI18N();
-
-  // Farm splitting
-  document.getElementById('btnRecompute').addEventListener('click', recomputeSplit);
-  document.getElementById('btnExportAlloc').addEventListener('click', exportAllocationCsv);
-  document.getElementById('guildCsvInput').addEventListener('change', importGuildCsvFile);
-
-  // Guild helpers
-  document.getElementById('btnExtractGuildId').addEventListener('click', () => {
-    const url = document.getElementById('guildUrlInput').value.trim();
-    const id = extractGuildIdFromUrl(url);
-    if (!id) { alert('Guild ID not found in URL'); return; }
-    document.getElementById('guildIdInput').value = id;
-  });
-  document.getElementById('btnOpenGuildCSV').addEventListener('click', () => {
-    const id = document.getElementById('guildIdInput').value.trim();
-    if (!id) { alert('Enter your Guild ID'); return; }
-    const u = `https://www.pathofexile.com/guild/profile/${id}/stash-history`;
-    window.open(u, '_blank');
-  });
-
-  // Génère le bookmarklet
-  buildBookmarklet();
-
-  // Réception du CSV via window.name (depuis le bookmarklet)
-  receiveBookmarkletCsv();
 });
 
-// =============================
-// Bookmarklet (récolte CSV côté PoE)
-// =============================
-function buildBookmarklet(){
-  // ⚠️ Remplace par l’URL de ton site (GitHub Pages) :
-  const TARGET = 'https://redstrom.github.io/POE2CSVImporter/'; //
-
-  const code =
-"(function(){function g(){var a=document.querySelectorAll('a,button');for(var i=0;i<a.length;i++){var el=a[i];var t=(el.textContent||'');if(/csv|download/i.test(t)&&el.href)return el.href;}try{var u=new URL(location.href);if(!/stash-history/.test(u.pathname)){alert('Open your Guild → Stash History first.');return null;}u.searchParams.set('format','csv');return u.toString();}catch(e){return null;}}var href=g();if(!href){alert('CSV link not found on this page.');return;}fetch(href,{credentials:'include'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.text();}).then(function(csv){window.name=csv;location.href='" + TARGET + "#from=poe';}).catch(function(err){alert('CSV fetch failed: '+err);});})();";
-
-  const a = document.getElementById('bookmarkletLink');
-  a.setAttribute('href', 'javascript:' + code);
-}
-
-// Réception du CSV déposé dans window.name par le bookmarklet
-function receiveBookmarkletCsv(){
-  try {
-    const hash = (location.hash || '').toLowerCase();
-    if (hash.includes('from=poe') && window.name && window.name.length > 0) {
-      const text = window.name;
-      window.name = ''; // purge
-      const parsed = parseCSV(text);
-      if (!parsed || !parsed.length) { alert('CSV reçu vide.'); return; }
-      rawData = parsed;
-      filteredData = [];
-      populatePreviewTable(rawData);
-      populateFilterOptions(rawData);
-      updateAllCharts(rawData);
-      syncSplitStashSelect();
-      // Ouvre l’onglet Farm splitting
-      document.querySelectorAll('.tabPage').forEach(p => p.style.display='none');
-      document.getElementById('tabSplit').style.display='block';
-      recomputeSplit();
-    }
-  } catch(e) {
-    console.warn('Receive bookmarklet CSV error:', e);
-  }
-}
-
-// Import manuel du CSV de guilde (si l’utilisateur l’a téléchargé)
-async function importGuildCsvFile(e){
-  const file = e.target.files[0];
-  if (!file) return;
-  const text = await file.text();
-  const parsed = parseCSV(text);
-  if (!parsed){ alert('CSV invalid'); return; }
-  rawData = parsed;
-  filteredData = [];
-  populatePreviewTable(rawData);
-  populateFilterOptions(rawData);
-  updateAllCharts(rawData);
-  syncSplitStashSelect();
-}
-
-// =============================
-// i18n (Fr/En)
-// =============================
-const I18N = {
-  en: {
-    appTitle: "PoE Guild Chest Analyzer",
-    language: "Language",
-    upload: "Upload CSV File",
-    filters: "Filters",
-    stash: "Stash",
-    account: "Account",
-    action: "Action",
-    preview: "Preview",
-    viz: "Data Visualizations",
-    splitTitle: "Farm splitting",
-    splitDesc: "Shows how to split what remains in the selected stash at the time of CSV export.",
-    splitStash: "Stash",
-    splitMode: "Mode",
-    splitEqual: "Equal split",
-    splitWeighted: "Weighted by contributions",
-    recompute: "Recompute",
-    exportAlloc: "Export allocation (.csv)",
-    remainder: "Remainder (by currency)",
-    allocation: "Allocation per player",
-    thDate: "Date", thAccount: "Account", thAction: "Action", thStash: "Stash", thItem: "Item",
-    guildUrl: "Guild URL",
-    guildId: "Guild ID",
-    openGuildCsv: "Open Stash History (CSV)",
-    importGuildCsv: "Import guild CSV"
-  },
-  fr: {
-    appTitle: "Analyseur de Coffre de Guilde PoE",
-    language: "Langue",
-    upload: "Importer un fichier CSV",
-    filters: "Filtres",
-    stash: "Coffre (Stash)",
-    account: "Compte",
-    action: "Action",
-    preview: "Aperçu",
-    viz: "Visualisations",
-    splitTitle: "Farm splitting",
-    splitDesc: "Affiche la répartition de ce qu’il reste dans le stash sélectionné à la date d’extraction du CSV.",
-    splitStash: "Stash",
-    splitMode: "Mode",
-    splitEqual: "Part égale",
-    splitWeighted: "Pondérée par contributions",
-    recompute: "Recalculer",
-    exportAlloc: "Exporter l’allocation (.csv)",
-    remainder: "Reste (par currency)",
-    allocation: "Allocation par joueur",
-    thDate: "Date", thAccount: "Compte", thAction: "Action", thStash: "Stash", thItem: "Item",
-    guildUrl: "URL de la guilde",
-    guildId: "ID de la guilde",
-    openGuildCsv: "Ouvrir Stash History (CSV)",
-    importGuildCsv: "Importer CSV de guilde"
-  }
-};
-let CURRENT_LANG = localStorage.getItem('lang') || 'en';
-function t(key){ return (I18N[CURRENT_LANG]||I18N.en)[key] || key; }
-function applyI18N(){
-  document.getElementById('appTitle').textContent = t('appTitle');
-  document.getElementById('lblLanguage').textContent = t('language');
-  document.getElementById('lblUpload').textContent = t('upload');
-  document.getElementById('lblFilters').textContent = t('filters');
-  document.getElementById('lblStash').textContent = t('stash');
-  document.getElementById('lblAccount').textContent = t('account');
-  document.getElementById('lblAction').textContent = t('action');
-  document.getElementById('lblPreview').textContent = t('preview');
-  document.getElementById('thDate').textContent = t('thDate');
-  document.getElementById('thAccount').textContent = t('thAccount');
-  document.getElementById('thAction').textContent = t('thAction');
-  document.getElementById('thStash').textContent = t('thStash');
-  document.getElementById('thItem').textContent = t('thItem');
-  document.getElementById('lblViz').textContent = t('viz');
-  document.getElementById('lblSplitTitle').textContent = t('splitTitle');
-  document.getElementById('lblSplitDesc').textContent = t('splitDesc');
-  document.getElementById('lblSplitStash').textContent = t('splitStash');
-  document.getElementById('lblSplitMode').textContent = t('splitMode');
-  document.querySelector('#splitModeSel option[value="equal"]').textContent = t('splitEqual');
-  document.querySelector('#splitModeSel option[value="weighted"]').textContent = t('splitWeighted');
-  document.getElementById('btnRecompute').textContent = t('recompute');
-  document.getElementById('btnExportAlloc').textContent = t('exportAlloc');
-  document.getElementById('lblRemainder').textContent = t('remainder');
-  document.getElementById('lblAllocation').textContent = t('allocation');
-  document.getElementById('lblGuildUrl').textContent = t('guildUrl');
-  document.getElementById('lblGuildId').textContent = t('guildId');
-  document.getElementById('btnOpenGuildCSV').textContent = t('openGuildCsv');
-  document.getElementById('lblGuildCsv').textContent = t('importGuildCsv');
-}
-
-// =============================
-// Lecture CSV & tableau
-// =============================
-function handleFile(file){
+// ===== I/O =====
+function handleFile(file) {
   const reader = new FileReader();
   reader.onload = function (e) {
     const text = e.target.result;
@@ -244,140 +51,373 @@ function handleFile(file){
     if (parsed) {
       rawData = parsed;
       filteredData = [];
-      populatePreviewTable(rawData);
       populateFilterOptions(rawData);
-      updateAllCharts(rawData);
-      syncSplitStashSelect();
+      applyFilters(); // initialise preview + répartition
     }
   };
   reader.readAsText(file);
 }
 
-// Parseur CSV simple (assume séparateur virgule, lignes CR/LF)
-function parseCSV(csvContent){
-  const lines = csvContent.split(/\r?\n/).filter(l => l.trim().length>0);
-  // BOM
-  lines[0] = lines[0].replace(/^\uFEFF/, '');
+function parseCSV(csvContent) {
+  const lines = csvContent.split(/\r?\n/).filter(line => line.trim().length > 0);
+  if (!lines.length) return [];
+
+  lines[0] = lines[0].replace(/^\uFEFF/, ''); // BOM
   const header = lines[0].split(',').map(col => col.trim());
-  const required = ['Date', 'Id', 'League', 'Account', 'Action', 'Stash', 'Item'];
-  for (const col of required){
-    if (!header.includes(col)){
-      // Certains CSV de guilde ont l’entête légèrement différent : on essaie de continuer
-      console.warn('Missing column:', col);
+
+  const requiredColumns = ['Date', 'Id', 'League', 'Account', 'Action', 'Stash', 'Item'];
+  for (const col of requiredColumns) {
+    if (!header.includes(col)) {
+      alert(`Colonne requise manquante : ${col}`);
+      return null;
     }
   }
+
   const data = [];
-  for (let i=1; i<lines.length; i++){
-    const row = splitCSVLine(lines[i]);
-    if (row.length !== header.length){
-      // tenter un fallback naïf
-      console.warn('Skipping malformed row:', lines[i]);
-      continue;
+  for (let i = 1; i < lines.length; i++) {
+    let row = lines[i].split(',');
+    if (row.length !== header.length) {
+      if (row.length > header.length) {
+        const merged = row.slice(0, header.length - 1);
+        merged.push(row.slice(header.length - 1).join(','));
+        row = merged;
+      } else {
+        console.warn(`Ligne ignorée : ${lines[i]}`);
+        continue;
+      }
     }
-    const obj = {};
-    for (let j=0; j<header.length; j++){
-      obj[header[j]] = stripOuterQuotes(row[j]);
+    const o = {};
+    for (let j = 0; j < header.length; j++) {
+      const cleanedValue = stripQuotes(row[j]);
+      o[header[j]] = cleanedValue;
     }
-    data.push(obj);
+
+    // Normaliser Stash (trim)
+    o.Stash = (o.Stash ?? '').trim();
+
+    // X/Y (numériques si présents)
+    o.X = Number(o.X ?? NaN);
+    o.Y = Number(o.Y ?? NaN);
+
+    // Date & Id pour tie-break du "dernier event"
+    const d = new Date(o.Date);
+    o._dateObj = isNaN(d) ? null : d;
+    o._idNum = Number(o.Id ?? NaN);
+
+    // Parser quantité + nom
+    const { name, qty: parsedQty } = extractQuantityAndName(o.Item);
+    o.ItemName = name;
+
+    const explicitQty = Number(o.Quantity ?? o.Amount ?? NaN);
+    o.Qty = Number.isFinite(explicitQty) ? explicitQty : parsedQty;
+
+    data.push(o);
   }
   return data;
 }
 
-// Split CSV line handling simple quotes
-function splitCSVLine(line){
-  const out = [];
-  let cur = '';
-  let inQuotes = false;
-  for (let i=0;i<line.length;i++){
-    const ch = line[i];
-    if (ch === '"'){
-      // toggle or escaped
-      if (inQuotes && line[i+1] === '"'){ cur += '"'; i++; }
-      else inQuotes = !inQuotes;
-    } else if (ch === ',' && !inQuotes){
-      out.push(cur); cur = '';
-    } else {
-      cur += ch;
-    }
+function stripQuotes(s) { return (s ?? '').trim().replace(/^"(.*)"$/, '$1'); }
+
+// ===== Quantity & Name parsing =====
+function extractQuantityAndName(itemRaw) {
+  const s = (itemRaw ?? '').trim();
+
+  // "NN ×|x|✕ Item"
+  let m = s.match(/^\s*([0-9]+)\s*[×x✕]\s*(.+)$/i);
+  if (m) return { name: m[2].trim(), qty: Number(m[1]) || 1 };
+
+  // Suffixe: "Item xNN" ou "Item ✕NN"
+  m = s.match(/\b[x✕]\s*([0-9]+)\b/i);
+  if (m) {
+    const qty = Number(m[1]) || 1;
+    const name = s.replace(/\b[x✕]\s*[0-9]+\b/i, '').trim().replace(/\s{2,}/g, ' ');
+    return { name, qty };
   }
-  out.push(cur);
-  return out;
-}
-function stripOuterQuotes(v){
-  return String(v).replace(/^"(.*)"$/,'$1');
+
+  // "Stack Size: NN"
+  m = s.match(/stack size:\s*([0-9]+)/i);
+  if (m) {
+    const qty = Number(m[1]) || 1;
+    const name = s.replace(/stack size:\s*[0-9]+/i, '').trim().replace(/\s{2,}/g, ' ');
+    return { name, qty };
+  }
+
+  // "(NN)" ou "[NN]" en fin
+  m = s.match(/(?:\(|\[)\s*([0-9]+)\s*(?:\)|\])$/);
+  if (m) {
+    const qty = Number(m[1]) || 1;
+    const name = s.replace(/(?:\(|\[)\s*[0-9]+\s*(?:\)|\])$/, '').trim();
+    return { name, qty };
+  }
+
+  return { name: s, qty: 1 };
 }
 
-function populatePreviewTable(data){
-  if (currentSortColumn){
-    data = sortDataByColumn(data, currentSortColumn, currentSortAsc);
+// ===== Détection des currencies (POE2DB) — tiers DISTINCTS =====
+const CURRENCY_BASES = new Set([
+  'scroll of wisdom','orb of transmutation','orb of augmentation','orb of alchemy','orb of chance',
+  'regal orb','exalted orb','orb of annulment','chaos orb','divine orb','vaal orb',
+  "armourer's scrap","blacksmith's whetstone","arcanist's etcher","glassblower's bauble","gemcutter's prism",
+  "jeweller's orb","artificer's orb","fracturing orb","mirror of kalandra","hinekora's lock",
+  'transmutation shard','chance shard','regal shard',"artificer's shard"
+]);
+// Réfs utiles : POE2DB “Currency” et “Currency Exchange”.
+// https://poe2db.tw/us/Currency  |  https://poe2db.tw/us/Currency_Exchange
+
+function canonicalCurrencyName(name) {
+  let n = (name ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (n.includes("jeweller's orb")) {
+    if (n.startsWith('greater ')) return "greater jeweller's orb";
+    if (n.startsWith('perfect ')) return "perfect jeweller's orb";
+    if (n.startsWith('lesser '))  return "lesser jeweller's orb";
+    return "jeweller's orb";
   }
+  return n;
+}
+function isCurrency(name) {
+  const n = canonicalCurrencyName(name);
+  const base = n.replace(/^(greater|perfect|lesser)\s+/i, '');
+  return CURRENCY_BASES.has(base);
+}
+
+// ===== Tri / date helper =====
+function isNewerEvent(a, b) {
+  if (!b) return true;
+  if (a?._dateObj && b?._dateObj && a._dateObj.getTime() !== b._dateObj.getTime()) {
+    return a._dateObj > b._dateObj;
+  }
+  if (Number.isFinite(a?._idNum) && Number.isFinite(b?._idNum) && a._idNum !== b._idNum) {
+    return a._idNum > b._idNum;
+  }
+  return false;
+}
+
+// ===== Filtres =====
+function populateFilterOptions(data) {
+  const stashFilter = document.getElementById('stashFilter');
+  const accountFilter = document.getElementById('accountFilter');
+  const actionFilter = document.getElementById('actionFilter');
+
+  clearSelectOptions(stashFilter);
+  clearSelectOptions(accountFilter);
+  clearSelectOptions(actionFilter);
+
+  const stashes = [...new Set(data.map(d => d.Stash))].filter(Boolean).sort();
+  const accounts = [...new Set(data.map(d => d.Account))].filter(Boolean).sort();
+  const actions  = [...new Set(data.map(d => d.Action))].filter(Boolean).sort();
+
+  stashes.forEach(stash => appendOption(stashFilter, stash));
+  accounts.forEach(acc => appendOption(accountFilter, acc));
+  actions.forEach(act => appendOption(actionFilter, act));
+}
+
+function appendOption(selectEl, value) {
+  const opt = document.createElement('option');
+  opt.value = value;
+  opt.textContent = value;
+  selectEl.appendChild(opt);
+}
+function clearSelectOptions(selectElement) {
+  while (selectElement.options.length > 1) selectElement.remove(1);
+}
+
+function applyFilters() {
+  const stashVal   = document.getElementById('stashFilter').value;
+  const accountVal = document.getElementById('accountFilter').value;
+  const actionVal  = document.getElementById('actionFilter').value;
+  const itemTerm   = (document.getElementById('itemFilterInput').value || '').trim().toLowerCase();
+
+  filteredData = rawData.filter(item => {
+    const inStash   = (stashVal === ''   || item.Stash === stashVal);
+    const inAccount = (accountVal === '' || item.Account === accountVal);
+    const inAction  = (actionVal === ''  || item.Action === actionVal);
+    const name      = (item.ItemName ?? item.Item ?? '').toLowerCase();
+    const inName    = (itemTerm === '' || name.includes(itemTerm));
+    return inStash && inAccount && inAction && inName;
+  });
+
+  populatePreviewTable(filteredData);
+  updateCurrencySplit(filteredData);
+}
+
+// ===== Prévisualisation (Logs ou Inventaire) =====
+function populatePreviewTable(dataInput) {
+  let data = dataInput;
+  if (currentSortColumn) data = sortDataByColumn(data, currentSortColumn, currentSortAsc);
+
   const tbody = document.querySelector('#previewTable tbody');
   tbody.innerHTML = '';
-  data.forEach(row => {
-    const formattedDate = formatDate(row.Date);
+
+  const inventoryMode = document.getElementById('inventoryMode').checked;
+
+  if (!inventoryMode) {
+    // Mode LOGS
+    data.forEach(row => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${formatDate(row.Date)}</td>
+        <td>${row.Account}</td>
+        <td>${row.Action}</td>
+        <td>${row.Stash}</td>
+        <td>${Number(row.Qty ?? 1)}</td>
+        <td>${row.ItemName ?? row.Item}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+    return;
+  }
+
+  // INVENTAIRE (état final) : snapshot par case (X,Y), en prenant le dernier event
+  const rows = computeFinalInventoryRows(data)
+    .filter(r => r.qty > 0)
+    .sort((a, b) => b.qty - a.qty);
+
+  rows.forEach(r => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td>${formattedDate}</td>
-      <td>${row.Account}</td>
-      <td>${row.Action}</td>
-      <td>${row.Stash}</td>
-      <td>${row.Item}</td>
+      <td class="small">—</td>
+      <td class="small">—</td>
+      <td class="small">Inventaire (final)</td>
+      <td>${r.stash || '—'}</td>
+      <td>${Number(r.qty)}</td>
+      <td>${r.name}</td>
     `;
     tbody.appendChild(tr);
   });
 }
 
-function formatDate(isoString){
-  const s = String(isoString).replace(/^\uFEFF/,'');
-  const d = new Date(s);
-  if (isNaN(d)) return isoString;
-  let month = d.getMonth()+1, day = d.getDate(), year = d.getFullYear();
-  let hours = d.getHours(), minutes = d.getMinutes();
+// ===== Inventaire final par coffre (snapshot X/Y + fallback) =====
+function computeFinalInventoryRows(data) {
+  const hasXY = data.some(d => Number.isFinite(d.X) && Number.isFinite(d.Y));
+  if (hasXY) {
+    const slots = new Map(); // key = stash@@X@@Y -> dernier event
+    for (const d of data) {
+      const stash = d.Stash ?? '';
+      const X = Number.isFinite(d.X) ? d.X : null;
+      const Y = Number.isFinite(d.Y) ? d.Y : null;
+      if (X === null || Y === null) continue;
+      const key = `${stash}@@${X}@@${Y}`;
+      const curr = slots.get(key);
+      if (isNewerEvent(d, curr)) slots.set(key, d);
+    }
+
+    const accum = new Map(); // key = name@@stash -> {name, stash, qty}
+    for (const [, ev] of slots.entries()) {
+      const action = String(ev.Action ?? '').toLowerCase();
+      if (action.includes('rem')) continue; // removed => slot vide
+
+      const name  = ev.ItemName ?? ev.Item ?? 'Unknown';
+      const stash = ev.Stash ?? '';
+      const qty   = Number(ev.Qty ?? 1);
+
+      const key = `${name}@@${stash}`;
+      const prev = accum.get(key) ?? { name, stash, qty: 0 };
+      prev.qty += qty;
+      accum.set(key, prev);
+    }
+    return [...accum.values()];
+  }
+
+  // Fallback si pas de X/Y : Ajout − Retrait (et clamp à 0)
+  const map = new Map(); // key = name@@stash
+  for (const d of data) {
+    const name  = d.ItemName ?? d.Item ?? 'Unknown';
+    const stash = d.Stash ?? '';
+    const qty   = Number(d.Qty ?? 1);
+    const act   = String(d.Action ?? '').toLowerCase();
+
+    if (act.includes('add')) {
+      const key = `${name}@@${stash}`;
+      const prev = map.get(key) ?? { name, stash, qty: 0 };
+      prev.qty += qty; map.set(key, prev);
+    } else if (act.includes('rem') || act.includes('withdraw') || act.includes('take')) {
+      const key = `${name}@@${stash}`;
+      const prev = map.get(key) ?? { name, stash, qty: 0 };
+      prev.qty -= qty; map.set(key, prev);
+    } else if (act.includes('mod')) {
+      // sans X/Y on ne peut pas quantifier un "modified"
+      continue;
+    }
+  }
+  return [...map.values()].map(r => ({ ...r, qty: Math.max(0, Number(r.qty) || 0) }));
+}
+
+// ===== Répartition des currencies (tiers distincts, division entière + reste) =====
+function updateCurrencySplit(dataInput) {
+  const playerCount = Math.max(1, Number(document.getElementById('playerCount').value) || 1);
+
+  const invRows = computeFinalInventoryRows(dataInput);
+
+  const totals = new Map();
+  for (const r of invRows) {
+    const can = canonicalCurrencyName(r.name);
+    if (!isCurrency(can)) continue;
+    const qty = Number(r.qty) || 0;
+    if (qty <= 0) continue;
+    totals.set(can, (totals.get(can) ?? 0) + qty);
+  }
+
+  const tbody = document.querySelector('#currencySplitTable tbody');
+  tbody.innerHTML = '';
+  const rows = [...totals.entries()].sort((a, b) => b[1] - a[1]);
+  rows.forEach(([item, total]) => {
+    const perPlayer = Math.floor(total / playerCount);
+    const remainder = total % playerCount;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escapeHtml(titleCase(item))}</td>
+      <td>${formatNumber(total)}</td>
+      <td>${formatNumber(perPlayer)}</td>
+      <td>${formatNumber(remainder)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// ===== Utilitaires =====
+function formatDate(isoString) {
+  const dateObj = new Date(isoString);
+  if (isNaN(dateObj)) return isoString;
+  const monthStr = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const dayStr = String(dateObj.getDate()).padStart(2, '0');
+  const yearStr = String(dateObj.getFullYear()).slice(-2);
+  let hours = dateObj.getHours();
+  const minutesStr = String(dateObj.getMinutes()).padStart(2, '0');
   const amPm = hours >= 12 ? 'PM' : 'AM';
   hours = hours % 12 || 12;
-  const mm = String(month).padStart(2,'0');
-  const dd = String(day).padStart(2,'0');
-  const yy = String(year).slice(-2);
-  const hh = String(hours);
-  const mi = String(minutes).padStart(2,'0');
-  return `${mm}/${dd}/${yy} ${hh}:${mi} ${amPm}`;
+  return `${monthStr}/${dayStr}/${yearStr} ${hours}:${minutesStr} ${amPm}`;
 }
 
-function populateFilterOptions(data){
-  const stashFilter = document.getElementById('stashFilter');
-  const accountFilter = document.getElementById('accountFilter');
-  const actionFilter = document.getElementById('actionFilter');
-  clearSelectOptions(stashFilter);
-  clearSelectOptions(accountFilter);
-  clearSelectOptions(actionFilter);
-
-  const stashes = [...new Set(data.map(d => d.Stash))].filter(Boolean);
-  const accounts = [...new Set(data.map(d => d.Account))].filter(Boolean);
-  const actions  = [...new Set(data.map(d => d.Action))].filter(Boolean);
-
-  stashes.forEach(st => stashFilter.appendChild(newOption(st)));
-  accounts.forEach(a => accountFilter.appendChild(newOption(a)));
-  actions.forEach(a => actionFilter.appendChild(newOption(a)));
-}
-function newOption(v){ const o=document.createElement('option'); o.value=v; o.textContent=v; return o; }
-function clearSelectOptions(sel){ while(sel.options.length>1){ sel.remove(1); } }
-
-function applyFilters(){
-  const stashVal = document.getElementById('stashFilter').value;
-  const accountVal = document.getElementById('accountFilter').value;
-  const actionVal = document.getElementById('actionFilter').value;
-  filteredData = rawData.filter(item => (
-    (stashVal==='' || item.Stash === stashVal) &&
-    (accountVal==='' || item.Account === accountVal) &&
-    (actionVal==='' || item.Action === actionVal)
-  ));
-  populatePreviewTable(filteredData);
-  updateAllCharts(filteredData);
+function downloadCSV() {
+  const dataToExport = filteredData && filteredData.length ? filteredData : rawData;
+  if (!dataToExport.length) {
+    alert('Aucune donnée à exporter.');
+    return;
+  }
+  const header = Object.keys(dataToExport[0]);
+  const csvRows = [header.join(',')];
+  for (const row of dataToExport) {
+    const values = header.map(key => {
+      const v = row[key] ?? '';
+      const s = String(v).replace(/"/g, '""');
+      return `"${s}"`;
+    });
+    csvRows.push(values.join(','));
+  }
+  const csvString = csvRows.join('\n');
+  const blob = new Blob([csvString], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', 'exported_data.csv');
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
-function attachTableHeaderListeners(){
+function attachTableHeaderListeners() {
   const headers = document.querySelectorAll('#previewTable thead th');
-  const columns = ['Date','Account','Action','Stash','Item'];
+  const columns = ['Date', 'Account', 'Action', 'Stash', 'Quantité', 'Item'];
   headers.forEach((th, idx) => {
     th.addEventListener('click', () => {
       const column = columns[idx];
@@ -387,297 +427,41 @@ function attachTableHeaderListeners(){
     });
   });
 }
-function sortDataByColumn(data, column, asc){
-  return [...data].sort((a,b) => {
-    if (a[column] < b[column]) return asc ? -1 : 1;
-    if (a[column] > b[column]) return asc ? 1 : -1;
+
+function sortDataByColumn(data, column, asc) {
+  const colMap = { 'Quantité': 'Qty', 'Item': 'ItemName', 'Date': 'Date', 'Account': 'Account', 'Action': 'Action', 'Stash': 'Stash' };
+  const key = colMap[column] ?? column;
+  return [...data].sort((a, b) => {
+    const av = a[key] ?? '';
+    const bv = b[key] ?? '';
+    const na = Number(av), nb = Number(bv);
+    if (isFinite(na) && isFinite(nb)) return asc ? (na - nb) : (nb - na);
+    if (av < bv) return asc ? -1 : 1;
+    if (av > bv) return asc ? 1 : -1;
     return 0;
   });
 }
 
-// =============================
-// Visualisations (Chart.js)
-// =============================
-function updateAllCharts(data){
-  if (timelineChart) timelineChart.destroy();
-  if (barChart)      barChart.destroy();
-  if (pieChart)      pieChart.destroy();
-  if (heatmapChart)  heatmapChart.destroy();
-  createTimelineChart(data);
-  createBarChart(data);
-  createPieChart(data);
-  createHeatmapChart(data);
-}
-function createTimelineChart(data){
-  const ctx = document.getElementById('timelineChart').getContext('2d');
-  const grouped = {};
-  data.forEach(d => {
-    const dateKey = d.Date;
-    if(!grouped[dateKey]) grouped[dateKey] = {};
-    if(!grouped[dateKey][d.League]) grouped[dateKey][d.League] = 0;
-    grouped[dateKey][d.League]++;
-  });
-  const labels = Object.keys(grouped).sort();
-  const leagueSet = [...new Set(data.map(d => d.League))];
-  const datasets = leagueSet.map(league => ({
-    label: league, data: labels.map(date => grouped[date][league] || 0),
-    backgroundColor: randomColor(), stack: 'TimelineStack'
-  }));
-  timelineChart = new Chart(ctx, {
-    type:'bar',
-    data:{ labels, datasets },
-    options:{
-      responsive:true,
-      scales:{ x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } },
-      plugins:{ tooltip:{ callbacks:{ label:(c)=>`${c.dataset.label||''}: ${c.parsed.y}` } } }
-    }
-  });
-}
-function createBarChart(data){
-  const ctx = document.getElementById('barChart').getContext('2d');
-  const actionCount = {};
-  data.forEach(d => {
-    const a = d.Action;
-    actionCount[a] = (actionCount[a] || 0) + 1;
-  });
-  const labels = Object.keys(actionCount);
-  const values = Object.values(actionCount);
-  barChart = new Chart(ctx, {
-    type:'bar',
-    data:{ labels, datasets:[{ label:'Action Frequency', data:values, backgroundColor: labels.map(()=>randomColor()) }] },
-    options:{ indexAxis:'y', scales:{ x:{ beginAtZero:true } },
-      plugins:{ tooltip:{ callbacks:{ label:(c)=>`${c.dataset.label}: ${c.parsed.x}` } } } }
-  });
-}
-function createPieChart(data){
-  const ctx = document.getElementById('pieChart').getContext('2d');
-  const accountCount = {};
-  data.forEach(d => {
-    const a = d.Account;
-    accountCount[a] = (accountCount[a] || 0) + 1;
-  });
-  const labels = Object.keys(accountCount);
-  const values = Object.values(accountCount);
-  pieChart = new Chart(ctx, {
-    type:'pie',
-    data:{ labels, datasets:[{ label:'Account Distribution', data:values, backgroundColor: labels.map(()=>randomColor()) }] },
-    options:{ plugins:{ tooltip:{ callbacks:{ label:(c)=>`${c.label||''}: ${c.parsed}` } } } }
-  });
-}
-function createHeatmapChart(data){
-  const ctx = document.getElementById('heatmapChart').getContext('2d');
-  const daily = {};
-  data.forEach(d => {
-    let datePart = String(d.Date).split(' ')[0];
-    let timePart = (String(d.Date).split(' ')[1] || '00:00').split(':')[0];
-    let hour = parseInt(timePart,10) || 0;
-    if (!daily[datePart]) daily[datePart] = Array(24).fill(0);
-    daily[datePart][hour]++;
-  });
-  const dates = Object.keys(daily).sort();
-  const datasets = [];
-  for (let h=0; h<24; h++){
-    datasets.push({ label:`Hour ${h}`, data: dates.map(date => daily[date][h] || 0),
-      backgroundColor: randomColor(), stack:'HeatmapStack' });
-  }
-  heatmapChart = new Chart(ctx, {
-    type:'bar',
-    data:{ labels:dates, datasets },
-    options:{ scales:{ x:{ stacked:true }, y:{ stacked:true, beginAtZero:true } },
-      plugins:{ tooltip:{ callbacks:{ label:(c)=>`Hour ${c.datasetIndex}: ${c.parsed.y}` } } } }
-  });
-}
-function randomColor(){
-  const r = Math.floor(Math.random()*200);
-  const g = Math.floor(Math.random()*200);
-  const b = Math.floor(Math.random()*200);
-  return `rgba(${r},${g},${b},0.6)`;
+function escapeHtml(s) {
+  return String(s ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
 
-function downloadCSV(){
-  const dataToExport = filteredData && filteredData.length ? filteredData : rawData;
-  if (!dataToExport.length){ alert('No data to export.'); return; }
-  const header = Object.keys(dataToExport[0]);
-  const csvRows = [header.join(',')];
-  for (const row of dataToExport){
-    const vals = header.map(k => safeCSV(row[k]));
-    csvRows.push(vals.join(','));
-  }
-  const csv = csvRows.join('\n');
-  triggerDownload(csv, 'exported_data.csv', 'text/csv');
-}
-function safeCSV(v){
-  const s = String(v??'');
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g,'""')}"`;
-  return s;
-}
-function downloadPNG(){
-  if (!timelineChart){ alert('No chart available to download.'); return; }
-  const url = timelineChart.toBase64Image('image/png', 1);
-  triggerDownload(url, 'chart.png', null, true);
-}
-function triggerDownload(content, filename, mime, isDataUrl=false){
-  const a = document.createElement('a');
-  if (isDataUrl){
-    a.href = content;
-  } else {
-    const blob = new Blob([content], {type:mime||'application/octet-stream'});
-    a.href = URL.createObjectURL(blob);
-  }
-  a.download = filename;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  if (!isDataUrl) URL.revokeObjectURL(a.href);
+function formatNumber(n) {
+  const x = Number(n);
+  if (!isFinite(x)) return String(n);
+  return x.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 
-// =============================
-// Farm splitting (reste & allocation)
-// =============================
-
-// Liste des currencies (à étendre selon besoins)
-const CURRENCY_TERMS = [
-  'Chaos Orb','Exalted Orb','Divine Orb','Vaal Orb','Orb of Chance','Orb of Alchemy',
-  "Gemcutter's Prism",'Regal Orb',"Jeweller's Orb","Armourer's Scrap","Blacksmith's Whetstone",
-  "Glassblower's Bauble","Artificer's Orb",'Orb of Annulment',
-  // PoE2 variants (exemples)
-  'Greater Chaos Orb','Greater Regal Orb','Greater Exalted Orb',"Greater Jeweller's Orb",
-  'Greater Orb of Augmentation','Greater Orb of Transmutation',
-  'Perfect Chaos Orb',"Perfect Jeweller's Orb",'Perfect Regal Orb','Perfect Exalted Orb',
-  'Perfect Orb of Augmentation','Perfect Orb of Transmutation',
-];
-const qtyRe = /^(\d+)\×\s*/; // "10× ..."
-const curRe = new RegExp('(' + CURRENCY_TERMS.map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')');
-
-function detectCurrency(itemText){
-  if (!itemText) return null;
-  const mQty = String(itemText).match(qtyRe);
-  const qty = mQty ? Number(mQty[1]) : 1;
-  const mCur = String(itemText).match(curRe);
-  if (!mCur) return null;
-  return { currency: mCur[1], qty };
-}
-
-// Reste = sum(added) - sum(removed) par currency, dans un stash (ignore "modified")
-function computeChestRemainder(rows, stashName){
-  const sessionRows = rows.filter(r => String(r.Stash) === String(stashName));
-  const totals = {};
-  for (const r of sessionRows){
-    const cur = detectCurrency(r.Item);
-    if (!cur) continue;
-    const sign = (r.Action === 'added') ? +1 : (r.Action === 'removed') ? -1 : 0;
-    if (!sign) continue;
-    totals[cur.currency] = (totals[cur.currency] || 0) + sign * cur.qty;
-  }
-  Object.keys(totals).forEach(k => { if (!totals[k] || totals[k] < 0) delete totals[k]; });
-  return totals;
-}
-
-// Contributeurs = comptes avec au moins un "added"
-function getContributors(rows, stashName){
-  const sessionRows = rows.filter(r => String(r.Stash) === String(stashName));
-  const set = new Set();
-  const counts = {};
-  for (const r of sessionRows){
-    if (r.Action === 'added'){
-      set.add(r.Account);
-      counts[r.Account] = (counts[r.Account] || 0) + 1; // pondération par #lignes ajoutées
-    }
-  }
-  return { contributors: Array.from(set), contribCounts: counts };
-}
-
-function computeDistribution(rows, stashName, mode, remainder){
-  const { contributors, contribCounts } = getContributors(rows, stashName);
-  const depCount = contributors.length || 1;
-  const sumContrib = Object.values(contribCounts).reduce((a,b)=>a+b,0) || 1;
-  const weights = Object.fromEntries(contributors.map(acc => [acc, (contribCounts[acc]||0)/sumContrib]));
-
-  const currencies = Object.keys(remainder);
-  const head = ['Account', ...currencies.map(c => `${c} (${mode})`)];
-  const body = contributors.map(acc => {
-    const row = { Account: acc };
-    currencies.forEach(c => {
-      const tot = remainder[c] || 0;
-      row[`${c} (${mode})`] = (mode === 'equal') ? (tot/depCount) : (tot * (weights[acc]||0));
-    });
-    return row;
-  });
-  return { head, body, contributors, contribCounts };
-}
-
-// UI Farm splitting
-function syncSplitStashSelect(){
-  const splitSel = document.getElementById('splitStashSel');
-  splitSel.innerHTML = '';
-  const stashes = [...new Set((rawData||[]).map(d=>d.Stash))].filter(Boolean);
-  stashes.forEach(st => splitSel.appendChild(newOption(st)));
-}
-
-function recomputeSplit(){
-  const stashName = document.getElementById('splitStashSel').value || document.getElementById('stashFilter').value;
-  if (!stashName) { alert('Sélectionne un stash'); return; }
-  const mode = document.getElementById('splitModeSel').value;
-
-  const rows = (filteredData && filteredData.length) ? filteredData : rawData;
-  const remainder = computeChestRemainder(rows, stashName);
-  renderRemainderTable(remainder);
-  const dist = computeDistribution(rows, stashName, mode, remainder);
-  renderAllocationTable(dist);
-}
-
-function renderRemainderTable(remainder){
-  const head = document.getElementById('remainderHead');
-  const body = document.getElementById('remainderBody');
-  head.innerHTML = '';
-  body.innerHTML = '';
-
-  const currencies = Object.keys(remainder);
-  head.innerHTML = `<th>Currency</th><th>Qty</th>`;
-  if (currencies.length === 0){
-    body.innerHTML = `<tr><td colspan="2" style="text-align:center;">—</td></tr>`;
-    return;
-  }
-  currencies.forEach(c => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${c}</td><td>${remainder[c]}</td>`;
-    body.appendChild(tr);
-  });
-}
-
-function renderAllocationTable(dist){
-  const head = document.getElementById('allocationHead');
-  const body = document.getElementById('allocationBody');
-  head.innerHTML = '';
-  body.innerHTML = '';
-
-  dist.head.forEach(h => {
-    const th = document.createElement('th'); th.textContent = h; head.appendChild(th);
-  });
-  dist.body.forEach(row => {
-    const tr = document.createElement('tr');
-    const cells = Object.keys(row).map(k => row[k]);
-    cells.forEach(v => {
-      const td = document.createElement('td');
-      td.textContent = (typeof v === 'number') ? (Number.isInteger(v)? v : v.toFixed(2)) : v;
-      tr.appendChild(td);
-    });
-    body.appendChild(tr);
-  });
-}
-
-function exportAllocationCsv(){
-  const head = Array.from(document.querySelectorAll('#allocationHead th')).map(th=>th.textContent);
-  const rows = Array.from(document.querySelectorAll('#allocationBody tr')).map(tr=>{
-    return Array.from(tr.children).map(td=>td.textContent);
-  });
-  if (!rows.length){ alert('No allocation to export.'); return; }
-  const csv = [head, ...rows].map(r => r.join(',')).join('\n');
-  triggerDownload(csv, 'allocation.csv', 'text/csv');
-}
-
-// =============================
-// Helpers de guilde (ID, URL)
-// =============================
-function extractGuildIdFromUrl(url){
-  const m = String(url).match(/\/guild\/profile\/(\d+)/);
-  return m ? m[1] : null;
+function titleCase(s) {
+  return String(s || '')
+    .split(' ')
+    .map(w => w ? (w[0].toUpperCase() + w.slice(1)) : w)
+    .join(' ')
+    .replace("Jeweller's", "Jeweller's")
+    .replace("Hinekora's", "Hinekora's");
 }
