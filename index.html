@@ -1,109 +1,181 @@
+
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>PoE Guild Chest Analyzer</title>
-    <link rel="stylesheet" href="style.css" />
-    <!-- Load Chart.js from a CDN for convenience -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> 
-  </head>
-
-  <body>
-    <div class="container">
-      <h1>PoE Guild Chest Activity Analyzer</h1>
-
-      <section class="file-upload-section">
-        <h2>Upload CSV File</h2>
-        <input type="file" id="csvFileInput" accept=".csv" />
-        <button id="uploadBtn">Import CSV</button>
-      </section>
-
-      <section class="filters-section">
-        <h2>Filters</h2>
-        <label for="stashFilter">Stash:</label>
-        <select id="stashFilter">
-          <option value="">All</option>
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>PoE Guild Chest Analyzer</title>
+  <style>
+    :root{
+      --bg:#0f1115; --fg:#e8eaed; --accent:#4ea1ff; --muted:#98a2b3;
+      --border:#1f2430; --card:#151821;
+    }
+    body{margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;}
+    header{padding:16px 20px;border-bottom:1px solid var(--border);background:var(--card);}
+    h1{margin:0;font-size:20px;}
+    nav{display:flex;gap:8px;padding:10px 20px;border-bottom:1px solid var(--border);}
+    .tabBtn{background:var(--card);color:var(--fg);border:1px solid var(--border);padding:8px 12px;border-radius:6px;cursor:pointer}
+    .tabBtn:hover{border-color:var(--accent)}
+    .tabPage{padding:16px 20px}
+    table{border-collapse:collapse;width:100%;background:var(--card);border:1px solid var(--border)}
+    th,td{border:1px solid var(--border);padding:6px 8px;font-size:14px}
+    th{background:#0c0f17}
+    input,select,button{background:#0c0f17;color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:6px 8px}
+    button{cursor:pointer}
+    label{margin-right:8px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    .muted{color:var(--muted)}
+    #bookmarkletBox{padding:10px;border:1px dashed var(--border);border-radius:8px;background:#0c0f17}
+    #bookmarkletLink{color:#fff;background:var(--accent);border:none;padding:6px 10px;border-radius:6px;text-decoration:none}
+    #bookmarkletLink:hover{filter:brightness(1.1)}
+    canvas{background:#0c0f17;border:1px solid var(--border);border-radius:6px;margin:12px 0}
+  </style>
+  <!-- Chart.js pour les visualisations -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="row">
+      <h1 id="appTitle">PoE Guild Chest Analyzer</h1>
+      <div style="margin-left:auto" class="row">
+        <label for="langSelect"><span id="lblLanguage">Language</span>:</label>
+        <select id="langSelect">
+          <option value="en">English</option>
+          <option value="fr">Français</option>
         </select>
-
-        <label for="accountFilter">Account:</label>
-        <select id="accountFilter">
-          <option value="">All</option>
-        </select>
-
-        <label for="actionFilter">Action:</label>
-        <select id="actionFilter">
-          <option value="">All</option>
-        </select>
-      </section>
-
-      <!-- Tab navigation -->
-      <div class="tab">
-        <button class="tablinks" onclick="openTab(event, 'Preview')">Preview</button>
-        <button class="tablinks" onclick="openTab(event, 'Visualizations')">Data Visualizations</button>
+        <!-- (Optionnel plus tard) OAuth -->
+        <button id="oauthLoginBtn" title="(à activer si API OAuth Guild Stash devient publique)">Login with PoE (OAuth)</button>
       </div>
+    </div>
+  </header>
 
-      <!-- Tab content -->
-      <div id="Preview" class="tabcontent">
-        <section id="previewSection">
-          <h3>Preview</h3>
-          <table id="previewTable">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Account</th>
-                <th>Action</th>
-                <th>Stash</th>
-                <th>Item</th>
-              </tr>
-            </thead>
-            <tbody>
-              <!-- Parsed data will appear here -->
-            </tbody>
-          </table>
-        </section>
-      </div>
+  <nav>
+    <button class="tabBtn" data-tab="tabImport">Data</button>
+    <button class="tabBtn" data-tab="tabViz">Visualizations</button>
+    <button class="tabBtn" data-tab="tabSplit">Farm splitting</button>
+  </nav>
 
-      <div id="Visualizations" class="tabcontent" style="display:none;">
-        <section class="charts-section">
-          <h2>Data Visualizations</h2>
-          <div class="chart-container">
-            <canvas id="timelineChart"></canvas>
-          </div>
-          <div class="chart-container">
-            <canvas id="barChart"></canvas>
-          </div>
-          <div class="chart-container">
-            <canvas id="pieChart"></canvas>
-          </div>
-          <div class="chart-container">
-            <canvas id="heatmapChart"></canvas>
-          </div>
-        </section>
-      </div>
-
+  <!-- Onglet Import / Filtres -->
+  <section id="tabImport" class="tabPage">
+    <h2 id="lblUpload">Upload CSV File</h2>
+    <div class="row">
+      <input type="file" id="csvFileInput" accept=".csv"/>
+      <button id="uploadBtn">Import CSV</button>
+      <span class="muted">Tu peux importer n’importe quel CSV compatible (Guild Stash History).</span>
     </div>
 
-    <script>
-      function openTab(evt, tabName) {
-        var i, tabcontent, tablinks;
-        tabcontent = document.getElementsByClassName("tabcontent");
-        for (i = 0; i < tabcontent.length; i++) {
-          tabcontent[i].style.display = "none";
-        }
-        tablinks = document.getElementsByClassName("tablinks");
-        for (i = 0; i < tablinks.length; i++) {
-          tablinks[i].className = tablinks[i].className.replace(" active", "");
-        }
-        document.getElementById(tabName).style.display = "block";
-        evt.currentTarget.className += " active";
-      }
+    <h3 id="lblFilters">Filters</h3>
+    <div class="row">
+      <label><span id="lblStash">Stash</span>:</label>
+      <select id="stashFilter"><option value="">All</option></select>
+      <label><span id="lblAccount">Account</span>:</label>
+      <select id="accountFilter"><option value="">All</option></select>
+      <label><span id="lblAction">Action</span>:</label>
+      <select id="actionFilter"><option value="">All</option></select>
+    </div>
 
-      // Open the default tab
-      document.addEventListener('DOMContentLoaded', (event) => {
-        document.querySelector('.tablinks').click();
-      });
-    </script>
+    <h3 id="lblPreview">Preview</h3>
+    <table id="previewTable">
+      <thead>
+        <tr>
+          <th id="thDate">Date</th>
+          <th id="thAccount">Account</th>
+          <th id="thAction">Action</th>
+          <th id="thStash">Stash</th>
+          <th id="thItem">Item</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
 
-    <script src="Poe2CSVImporter.js"></script>
-  </body>
+  <!-- Onglet Visualisations -->
+  <section id="tabViz" class="tabPage" style="display:none;">
+    <h2 id="lblViz">Data Visualizations</h2>
+    <div class="row">
+      <button id="downloadCsvBtn">Export Filtered CSV</button>
+      <button id="downloadPngBtn">Export Chart PNG</button>
+      <span class="muted">PNG = premier graphique visible (timeline).</span>
+    </div>
+    <canvas id="timelineChart" height="160"></canvas>
+    <canvas id="barChart" height="160"></canvas>
+    <canvas id="pieChart" height="160"></canvas>
+    <canvas id="heatmapChart" height="160"></canvas>
+  </section>
+
+  <!-- 🔥 Onglet Farm splitting -->
+  <section id="tabSplit" class="tabPage" style="display:none;">
+    <h2 id="lblSplitTitle">Farm splitting</h2>
+    <p id="lblSplitDesc" class="muted">
+      Shows how to split what <b>remains</b> in the selected stash at the time of CSV export.
+    </p>
+
+    <!-- Bookmarklet -->
+    <div id="bookmarkletBox">
+      <p>
+        <b>Bookmarklet :</b> glisse ce lien dans ta barre de favoris, puis clique‑le sur la
+        page <i>Guild → Stash History</i> pour que le CSV soit récupéré et renvoyé ici.
+      </p>
+      <a id="bookmarkletLink" href="#">Fetch Guild CSV</a>
+    </div>
+
+    <!-- Trouver l’ID de guilde + ouvrir la page CSV -->
+    <div class="grid2">
+      <div>
+        <label for="guildUrlInput" id="lblGuildUrl">Guild URL</label><br/>
+        <input id="guildUrlInput" type="text"
+               placeholder="https://www.pathofexile.com/guild/profile/1152921504606862272/stash-history"
+               style="width:100%">
+        <div class="row" style="margin-top:6px">
+          <button id="btnExtractGuildId">Extract ID</button>
+          <span class="muted">Colle l’URL de ta guilde pour extraire l’ID.</span>
+        </div>
+      </div>
+      <div>
+        <label for="guildIdInput" id="lblGuildId">Guild ID</label><br/>
+        <input id="guildIdInput" type="text" placeholder="1152921504606862272" style="width:100%">
+        <div class="row" style="margin-top:6px">
+          <button id="btnOpenGuildCSV">Open Stash History (CSV)</button>
+          <span class="muted">Ouvre la page officielle (tu télécharges si tu préfères).</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import direct CSV de guilde (si téléchargé manuellement) -->
+    <div class="row" style="margin-top:10px">
+      <label for="guildCsvInput" id="lblGuildCsv">Import guild CSV</label>
+      <input type="file" id="guildCsvInput" accept=".csv">
+    </div>
+
+    <div class="row" style="margin-top:10px">
+      <label for="splitStashSel" id="lblSplitStash">Stash</label>
+      <select id="splitStashSel"></select>
+
+      <label for="splitModeSel" id="lblSplitMode">Mode</label>
+      <select id="splitModeSel">
+        <option value="equal">Equal split</option>
+        <option value="weighted">Weighted by contributions</option>
+      </select>
+
+      <button id="btnRecompute">Recompute</button>
+      <button id="btnExportAlloc">Export allocation (.csv)</button>
+    </div>
+
+    <h3 id="lblRemainder" style="margin-top:12px">Remainder (by currency)</h3>
+    <table id="remainderTable">
+      <thead><tr id="remainderHead"></tr></thead>
+      <tbody id="remainderBody"></tbody>
+    </table>
+
+    <h3 id="lblAllocation" style="margin-top:12px">Allocation per player</h3>
+    <table id="allocationTable">
+      <thead><tr id="allocationHead"></tr></thead>
+      <tbody id="allocationBody"></tbody>
+    </table>
+  </section>
+
+  <!-- Ton script principal -->
+  <script src="Poe2CSVImporter.js"></script>
+</body>
 </html>
