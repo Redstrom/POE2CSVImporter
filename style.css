@@ -1,133 +1,163 @@
-/* Basic reset and global styling */
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
 
-body {
-  font-family: Arial, sans-serif;
-  background-color: #f4f4f4;
-  color: #333;
+/* === Thème (clair/sombre) via variables === */
+:root {
+  --bg: #f4f4f4;
+  --fg: #333;
+  --muted: #666;
+  --accent: #2c6bed;
+  --border: #ddd;
+  --panel: #fff;
 }
-
-.container {
-  max-width: 1200px;
-  margin: auto;
-  padding: 20px;
+body.theme-dark {
+  --bg: #0f1220;
+  --fg: #e6e8ef;
+  --muted: #9aa0b4;
+  --accent: #7aa2f7;
+  --border: #252a41;
+  --panel: #151a2f;
 }
-
-h1, h2 {
-  margin-bottom: 10px;
+body.theme-light {
+  --bg: #f4f4f4;
+  --fg: #333;
+  --muted: #666;
+  --accent: #2c6bed;
+  --border: #ddd;
+  --panel: #fff;
 }
+body { background-color: var(--bg); color: var(--fg); }
 
+/* Topbar + contrôles */
+.topbar {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:12px 16px; border-bottom:1px solid var(--border);
+  background: var(--panel);
+  margin-bottom: 16px;
+}
+.topbar h1 { font-size: 16px; margin: 0; }
+.controls { display:flex; gap:12px; align-items:center; }
+.theme-toggle { display:flex; align-items:center; gap:6px; }
+
+/* Sections */
 .file-upload-section,
-.filters-section,
-.charts-section,
-.export-section {
-  background-color: #fff;
-  margin-bottom: 20px;
-  padding: 20px;
-  border-radius: 5px;
+.preview-section,
+.split-section {
+  background-color: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 16px;
 }
 
-label {
-  margin-right: 10px;
-  font-weight: bold;
+/* Import collapsible */
+.file-upload-section.collapsed {
+  max-height: 0;
+  padding: 0;
+  margin: 0 0 12px 0;
+  border: 0;
+  overflow: hidden;
 }
 
-input[type="file"] {
-  margin-bottom: 10px;
+/* Drop zone */
+.drop-zone {
+  border: 2px dashed var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 14px;
+  text-align: center;
+  cursor: pointer;
+  margin: 10px 0;
+}
+.drop-zone.dragover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
-#uploadBtn {
-  margin-left: 10px;
-  padding: 5px 10px;
+/* Filtres inline dans le header du tableau */
+.preview-header {
+  display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap;
+}
+.filters-inline { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+/* Table triable + indicateurs */
+table.sortable thead th { position: relative; cursor: pointer; background-color: transparent; }
+table.sortable thead th .sort-indicator {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  color: var(--muted); font-size: 12px;
+}
+table.sortable thead th[aria-sort="ascending"] .sort-indicator::after  { content:"▲"; }
+table.sortable thead th[aria-sort="descending"] .sort-indicator::after { content:"▼"; }
+table.sortable thead th[aria-sort="none"] .sort-indicator::after       { content:""; }
+
+/* Pagination */
+.pagination-bar {
+  display:flex; align-items:center; gap:8px; margin-bottom: 8px;
+}
+.btn {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  padding: 4px 8px;
+  border-radius: 4px;
   cursor: pointer;
 }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.muted { color: var(--muted); }
 
-#previewTable {
-  width: 100%;
-  border-collapse: collapse;
+/* Alerte (message split en Logs) */
+.alert {
+  background: rgba(255, 184, 0, 0.12);
+  border: 1px solid #ffb800;
+  color: #7a4b00;
+  padding: 8px 10px;
+  border-radius: 6px;
   margin-top: 10px;
 }
+body.theme-dark .alert { background: rgba(255, 184, 0, 0.08); border-color: #ffb800; color: #e6c27a; }
 
-#previewTable th,
-#previewTable td {
-  border: 1px solid #ddd;
-  padding: 8px;
-  text-align: left;
-}
-
-/* Add specific width to the date column */
-#previewTable th:first-child,
-#previewTable td:first-child {
-  width: 150px; /* Adjust width as needed */
-}
-
-/* Center-align the column labels */
-#previewTable th {
-  text-align: center;
-}
-
-.chart-container {
-  position: relative;
-  margin-top: 20px;
+/* Tables lisibles et bordurées */
+table {
   width: 100%;
-  max-width: 600px;
-  height: auto;
-  margin-left: auto;
-  margin-right: auto;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-top: 10px;
 }
+table thead th, table tbody td {
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+}
+table thead th { text-align: left; }
 
-.chart-container canvas {
-  display: block;
-  width: 100% !important;
-  height: auto !important;
-}
+/* Alignements chiffres */
+#previewTable td:nth-child(5),
+#currencySplitTable td:nth-child(2),
+#currencySplitTable td:nth-child(3),
+#currencySplitTable td:nth-child(4) { text-align: right; }
 
-.export-section button {
-  margin-right: 10px;
-  padding: 8px 12px;
-  cursor: pointer;
-}
+/* Zebra striping */
+table tbody tr:nth-child(odd)  { background: rgba(0,0,0,0.03); }
+table tbody tr:nth-child(even) { background: transparent; }
+body.theme-dark table tbody tr:nth-child(odd)  { background: rgba(255,255,255,0.04); }
 
-/* Responsive Layout */
-@media (max-width: 768px) {
-  .chart-container {
-    min-height: 300px;
-  }
-}
+/* Largeurs : + large pour Account */
+#previewTable thead th:nth-child(1) { width: 150px; } /* Date */
+#previewTable thead th:nth-child(2) { width: 220px; } /* Account élargi */
+#previewTable thead th:nth-child(3) { width: 140px; } /* Action */
+#previewTable thead th:nth-child(4) { width: 160px; } /* Stash */
+#previewTable thead th:nth-child(5) { width: 100px; } /* Quantité */
+#previewTable thead th:nth-child(6) { width: auto;   } /* Item */
 
-/* Add these styles for the tab functionality */
-.tab {
-  overflow: hidden;
-  border-bottom: 1px solid #ccc;
-  margin-bottom: 20px;
-}
+#currencySplitTable thead th:nth-child(1) { width: 40%; } /* Currency */
+#currencySplitTable thead th:nth-child(2) { width: 20%; } /* Total */
+#currencySplitTable thead th:nth-child(3) { width: 20%; } /* Par joueur */
+#currencySplitTable thead th:nth-child(4) { width: 20%; } /* Reste */
 
-.tab button {
-  background-color: inherit;
-  float: left;
-  border: none;
-  outline: none;
-  cursor: pointer;
-  padding: 10px 20px;
-  transition: 0.3s;
-  font-size: 17px;
+/* Texte du split */
+.text-preview {
+  margin-top: 10px;
+  background: rgba(0,0,0,0.05);
+  padding: 10px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  border: 1px solid var(--border);
 }
-
-.tab button:hover {
-  background-color: #ddd;
-}
-
-.tab button.active {
-  background-color: #ccc;
-}
-
-.tabcontent {
-  display: none;
-  padding: 20px;
-  border: 1px solid #ccc;
-  border-top: none;
-}
+body.theme-dark .text-preview { background: rgba(255,255,255,0.05); }
