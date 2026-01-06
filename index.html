@@ -1,140 +1,135 @@
-
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <title>PoE Guild Loot Splitter — Répartition des currencies par coffre</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <!-- Thème sombre + pleine largeur/hauteur -->
-  <style>
-    :root {
-      --bg: #121212; --bg-alt: #1a1a1a; --text: #e0e0e0; --muted: #b0b0b0;
-      --accent: #3ea6ff; --border: #2a2a2a;
-    }
-    * { box-sizing: border-box; }
-    html, body { height: 100%; }
-    body { background: var(--bg); color: var(--text); margin: 0;
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", Arial, "Noto Sans", sans-serif; }
-
-    header { padding: 24px; border-bottom: 1px solid var(--border); background: var(--bg-alt); }
-    h1 { margin: 0 0 4px; font-size: 22px; }
-    .small { font-size: 12px; color: var(--muted); }
-
-    main {
-      padding: 24px;
-      width: 100%;
-      min-height: calc(100vh - 80px);
-      display: flex; flex-direction: column; gap: 16px;
-    }
-    .card { width: 100%; background: var(--bg-alt); border: 1px solid var(--border);
-      border-radius: 8px; padding: 16px; }
-    .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-    input[type="file"], select, button, input[type="text"], input[type="number"] {
-      background: #0f0f0f; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
-    }
-    button { cursor: pointer; }
-    button:hover { border-color: var(--accent); color: #fff; }
-
-    .scroll-area {
-      width: 100%;
-      max-height: calc(100vh - 320px);
-      overflow: auto;
-    }
-
-    table { width: 100%; border-collapse: collapse; }
-    thead th {
-      text-align: left; font-weight: 600; color: var(--muted);
-      padding: 10px; border-bottom: 1px solid var(--border); cursor: pointer;
-      position: sticky; top: 0; background: var(--bg-alt);
-    }
-    tbody td { padding: 10px; border-bottom: 1px solid var(--border); }
-    tbody tr:hover { background: #151515; }
-  </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PoE Guild Loot Splitter</title>
+  <!-- ✅ Lien correct vers la feuille de style -->
+  <link rel="stylesheet" href="style.css" />
 </head>
-<body>
-  <header>
-    <h1>PoE Guild Loot Splitter — Répartition des currencies par coffre</h1>
-    <div class="small">Importer un CSV, filtrer (coffre, compte, action, item), voir l’inventaire <em>final</em> par coffre (déplacements/partiels compris) et répartir les <strong>currencies</strong> entre N joueurs (division entière + reste).</div>
+<body class="theme-light">
+  <header class="topbar container">
+    <h1 data-i18n="app.title">PoE Guild Loot Splitter — Répartition des currencies par coffre</h1>
+    <div class="controls">
+      <label for="langSelect" data-i18n="ui.language">Langue :</label>
+      <select id="langSelect" aria-label="Language">
+        <option value="fr">FR</option>
+        <option value="en">EN</option>
+      </select>
+      <label class="theme-toggle">
+        <input id="themeToggle" type="checkbox" />
+        <span data-i18n="ui.theme">Mode sombre</span>
+      </label>
+      <button id="toggleImportBtn" class="btn" type="button" data-i18n="ui.toggleImport">Afficher la zone d’import</button>
+    </div>
   </header>
 
-  <main>
-    <!-- Import & Filtres -->
-    <section class="card">
-      <h2>Import & Filtres</h2>
-      <div class="controls">
-        <!-- CHANGEMENT: pas de bouton, import auto dès sélection -->
-        <input type="file" id="csvFileInput" accept=".csv" />
+  <main class="container">
+    <!-- Import (collapsible) -->
+    <section id="importSection" class="file-upload-section">
+      <h2 data-i18n="section.import.title">Import</h2>
 
-        <label style="display:flex;align-items:center;gap:8px;">
-          <input type="checkbox" id="inventoryMode" checked />
-          Afficher l’<strong>Inventaire final</strong> au lieu des logs
-        </label>
-
-        <select id="stashFilter">
-          <option value="">Stash : Tous</option>
-        </select>
-        <select id="accountFilter">
-          <option value="">Account : Tous</option>
-        </select>
-        <select id="actionFilter">
-          <option value="">Action : Toutes</option>
-        </select>
-
-        <input type="text" id="itemFilterInput" placeholder="Filtrer par item (insensible à la casse)" style="min-width:260px" />
+      <div class="upload-row">
+        <input id="csvFileInput" type="file" accept=".csv" />
+        <div id="dropZone" class="drop-zone" aria-label="Drag & drop area">
+          <span data-i18n="drop.hint">Glissez-déposez votre CSV ici, ou cliquez pour choisir un fichier</span>
+        </div>
       </div>
+      <p class="muted" data-i18n="import.hint">Après import, cette zone se réduit automatiquement pour laisser la place aux tableaux.</p>
     </section>
 
-    <!-- Inventaire final -->
-    <section class="card">
-      <h2>Inventaire (état final du coffre)</h2>
-      <div class="scroll-area">
-        <table id="previewTable">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Account</th>
-              <th>Action</th>
-              <th>Stash</th>
-              <th>Quantité</th>
-              <th>Item</th>
-            </tr>
-          </thead>
-          <tbody><!-- rempli par JS --></tbody>
-        </table>
+    <!-- Prévisualisation (+ filtres, même container) -->
+    <section id="preview" class="preview-section">
+	    <label class="inline" style="gap:6px">
+          <input id="inventoryMode" type="checkbox" />
+          <span data-i18n="input.inventoryMode.label">
+            Afficher l’inventaire au lieu de l'historique du coffre
+          </span>
+        </label>
+      <div class="preview-header">
+        <!-- ✅ Titre dynamique (Inventaire / Logs) mis à jour côté JS -->
+        <h2 id="previewTitle" data-i18n="section.preview.title.inventory">Inventaire</h2>
+
+        <div class="filters-inline">
+          <label for="stashFilter" data-i18n="input.stash">Coffre :</label>
+          <select id="stashFilter">
+            <option value="" data-i18n="select.any">Tous</option>
+          </select>
+
+          <label for="accountFilter" data-i18n="input.account">Compte :</label>
+          <select id="accountFilter">
+            <option value="" data-i18n="select.any">Tous</option>
+          </select>
+
+          <label for="actionFilter" data-i18n="input.action">Action :</label>
+          <select id="actionFilter">
+            <option value="" data-i18n="select.any">Toutes</option>
+          </select>
+
+          <label for="itemFilterInput" data-i18n="input.item">Item :</label>
+          <input id="itemFilterInput" type="text" placeholder="" />
+        </div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:10px;">
-        <button id="downloadCsvBtn">Exporter CSV (filtres)</button>
+
+      <div class="pagination-bar">
+        <label for="pageSizeSelect" data-i18n="pagination.pageSize">Lignes / page :</label>
+        <select id="pageSizeSelect">
+          <option value="10">10</option>
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+        <button id="prevPageBtn" class="btn" disabled>◀</button>
+        <span id="pageInfo" class="muted">1 / 1</span>
+        <button id="nextPageBtn" class="btn" disabled>▶</button>
       </div>
+
+      <table id="previewTable" class="sortable">
+        <thead>
+          <tr>
+            <th data-sort-key="Date" aria-sort="none"><span data-i18n="th.date">Date</span><span class="sort-indicator"></span></th>
+            <th data-sort-key="Account" aria-sort="none"><span data-i18n="th.account">Compte</span><span class="sort-indicator"></span></th>
+            <th data-sort-key="Action" aria-sort="none"><span data-i18n="th.action">Action</span><span class="sort-indicator"></span></th>
+            <th data-sort-key="Stash" aria-sort="none"><span data-i18n="th.stash">Coffre</span><span class="sort-indicator"></span></th>
+            <th data-sort-key="Qty" aria-sort="none"><span data-i18n="th.qty">Quantité</span><span class="sort-indicator"></span></th>
+            <th data-sort-key="ItemName" aria-sort="none"><span data-i18n="th.item">Item</span><span class="sort-indicator"></span></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </section>
 
-    <!-- Répartition des currencies -->
-    <section class="card">
-      <h2>Répartition des currencies</h2>
-      <div class="controls" style="margin-bottom:12px;">
-        <label style="display:flex;align-items:center;gap:8px;">
-          Nombre de joueurs :
-          <input type="number" id="playerCount" min="1" step="1" value="4" style="width:100px;" />
-        </label>
-        <button id="recomputeSplitBtn">Recalculer la répartition</button>
+    <!-- Répartition des currencies (+ texte) -->
+    <section id="split" class="split-section">
+      <h2 data-i18n="section.split.title">Répartition des currencies</h2>
+      <div class="split-controls">
+        <label for="playerCount" data-i18n="input.playerCount">Nombre de joueurs :</label>
+        <input id="playerCount" type="number" min="1" max="6" value="1" />
+        <label for="textModeSelect" data-i18n="text.mode.label">Format du texte :</label>
+        <select id="textModeSelect">
+          <option value="perPlayer" selected data-i18n="text.mode.perPlayer">Par joueur</option>
+          <option value="total" data-i18n="text.mode.total">Total + reste</option>
+        </select>
+        <button id="copySplitBtn" class="btn" data-i18n="text.copy">Copier la liste</button>
       </div>
-      <div class="scroll-area">
-        <table id="currencySplitTable">
-          <thead>
-            <tr>
-              <th>Currency (tier distinct)</th>
-              <th>Total</th>
-              <th>Par joueur</th>
-              <th>Reste</th>
-            </tr>
-          </thead>
-          <tbody><!-- rempli par JS --></tbody>
-        </table>
-      </div>
+
+      <table id="currencySplitTable" class="sortable">
+        <thead>
+          <tr>
+            <th data-sort-key="item" aria-sort="descending"><span data-i18n="th.currency">Monétaire</span><span class="sort-indicator"></span></th>
+            <th data-sort-key="total" aria-sort="descending"><span data-i18n="th.total">Total</span><span class="sort-indicator"></span></th>
+            <th data-sort-key="perPlayer" aria-sort="none"><span data-i18n="th.perPlayer">Par joueur</span><span class="sort-indicator"></span></th>
+            <th data-sort-key="remainder" aria-sort="none"><span data-i18n="th.remainder">Reste</span><span class="sort-indicator"></span></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+
+      <pre id="splitTextPreview" class="text-preview" aria-live="polite"></pre>
     </section>
   </main>
 
-  <!-- IMPORTANT: charger le script correctement -->
-  <script src="./Poe2CSVImporter.js"></script>
+  <!-- ✅ Script correctement lié -->
+  <script src="Poe2CSVImporter.js" defer></script>
 </body>
 </html>
